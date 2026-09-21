@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>Pigeon Post</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#22203a; --slate:#5a5a78; --cream:#fff6ea; --gold:#e3b158;
+    --sky-top:#1c2a52; --sky-bot:#cdeadb;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;}
+  body{font-family:'Nunito Sans',sans-serif;color:var(--ink);}
+
+  .backdrop{
+    position:fixed;inset:0;
+    background:linear-gradient(180deg,var(--sky-top) 0%, #3f6fa8 35%, #7ec8c0 68%, var(--sky-bot) 100%);
+    display:flex;align-items:center;justify-content:center;
+    overflow:hidden;
+  }
+  #stage{
+    image-rendering:pixelated;image-rendering:crisp-edges;
+    display:block;
+  }
+
+  .modal-overlay{
+    position:fixed;inset:0;z-index:30;
+    display:flex;align-items:center;justify-content:center;
+    padding:20px;
+    background:rgba(12,10,30,0.32);
+    backdrop-filter:blur(1px);
+  }
+  .modal-card{
+    background:var(--cream);border-radius:20px;padding:26px 24px;
+    width:100%;max-width:380px;
+    box-shadow:0 20px 46px rgba(10,8,30,0.45);
+    display:flex;flex-direction:column;gap:14px;align-items:center;text-align:center;
+  }
+  .brand{
+    font-family:'Press Start 2P',monospace;font-size:15px;color:var(--ink);
+    letter-spacing:1px;margin:0;
+  }
+  .status-line{font-size:15.5px;line-height:1.55;}
+  .btn{
+    font-family:'Nunito Sans',sans-serif;font-weight:800;font-size:15px;color:var(--ink);
+    background:var(--gold);border:none;border-radius:12px;padding:13px 26px;cursor:pointer;
+    box-shadow:0 8px 16px rgba(227,177,88,0.4);transition:transform .15s ease;
+  }
+  .btn:hover{transform:translateY(-2px);}
+  .btn:focus-visible{outline:3px solid var(--sky-top);outline-offset:2px;}
+
+  .hud-wrap{
+    position:fixed;left:0;right:0;bottom:0;z-index:20;
+    display:flex;justify-content:center;
+    padding:16px 16px calc(16px + env(safe-area-inset-bottom));
+    pointer-events:none;
+  }
+  .hud{
+    pointer-events:auto;
+    background:rgba(255,246,234,0.94);
+    border-radius:16px;padding:16px 20px;
+    width:100%;max-width:360px;
+    box-shadow:0 12px 30px rgba(10,8,30,0.3);
+    display:flex;flex-direction:column;gap:10px;align-items:center;text-align:center;
+  }
+  .hud .status-line{font-size:14.5px;min-height:38px;display:flex;align-items:center;justify-content:center;}
+  .stats{display:flex;width:100%;justify-content:space-between;gap:10px;border-top:1px solid rgba(90,90,120,0.18);padding-top:10px;}
+  .stat{display:flex;flex-direction:column;gap:2px;flex:1;}
+  .stat .label{font-size:10px;color:var(--slate);}
+  .stat .value{font-weight:800;font-size:16px;}
+
+  .photo-frame{width:100%;aspect-ratio:4/3;border-radius:12px;overflow:hidden;background:#ddd6c5;border:6px solid #fff;box-shadow:0 6px 16px rgba(0,0,0,0.18);}
+  .photo-frame img{width:100%;height:100%;object-fit:cover;display:block;}
+  .caption{font-style:italic;font-size:15px;margin:0;}
+
+  .toast{
+    position:fixed;top:16px;left:50%;transform:translateX(-50%) translateY(-140%);
+    background:var(--ink);color:var(--cream);padding:12px 18px;border-radius:10px;font-size:13.5px;font-weight:700;
+    box-shadow:0 10px 22px rgba(0,0,0,0.3);z-index:40;transition:transform .4s cubic-bezier(.2,1,.3,1);max-width:90vw;text-align:center;
+  }
+  .toast.show{transform:translateX(-50%) translateY(0);}
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+
+<div class="backdrop"><canvas id="stage" width="320" height="180"></canvas></div>
+
+<div class="modal-overlay" id="preOverlay">
+  <div class="modal-card">
+    <p class="brand">Pigeon Post</p>
+    <div class="status-line">A carrier pigeon has been dispatched to deliver your message.<br><strong>Estimated arrival: unknown.</strong><br>You will be notified upon arrival.</div>
+    <button class="btn" id="startBtn">Watch the sky</button>
+  </div>
+</div>
+
+<div class="hud-wrap hidden" id="flightHud">
+  <div class="hud">
+    <div class="status-line" id="statusLine">A pigeon lands in the yard…</div>
+    <div class="stats">
+      <div class="stat"><span class="label">DISTANCE REMAINING</span><span class="value" id="distanceValue">??? mi</span></div>
+      <div class="stat"><span class="label">ESTIMATED ARRIVAL</span><span class="value" id="etaValue">???</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="hud-wrap hidden" id="arrivedHud">
+  <div class="hud">
+    <div class="status-line">Your pigeon has arrived.<br>Open your message to retrieve it.</div>
+    <button class="btn" id="openBtn">Open your message</button>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="revealOverlay">
+  <div class="modal-card">
+    <div class="photo-frame">
+      <!-- REPLACE ME: swap the src below with your own photo URL -->
+      <img id="deliveryPhoto" src="https://images.unsplash.com/photo-1444464666168-49d633b86797?w=800&q=80" alt="Delivered photo">
+    </div>
+    <p class="caption">Delivered with a little wind in the wings.</p>
+    <button class="btn" id="replayBtn">Replay</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  const cv = document.getElementById('stage');
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  const U = 4;
+  const W = 320, H = 180;
+
+  function resizeCanvas(){
+    const scale = Math.min(window.innerWidth / W, window.innerHeight / H);
+    cv.style.width = (W*scale) + 'px';
+    cv.style.height = (H*scale) + 'px';
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  const pal = {
+    skin:'#f7d3ab', hair:'#8a4a2a', hairDark:'#6b3620', dress:'#f6c84f', dressShade:'#dda12f',
+    hat:'#e8c877', hatBrim:'#d9b25c', shirt:'#f2e9d8', denim:'#5b7fa6', denimDark:'#4a6a8c',
+    shoe:'#4a3220', eye:'#2b2320', blush:'#f2a99b',
+    body:'#8d90ac', wing:'#c7cbe0', beak:'#e3b158', tail:'#6b6f8a',
+    roof:'#8c4a2b', wall:'#caa06a', door:'#5a3d22', doorOpen:'#241a12', win:'#eaf4ff',
+    grassA:'#6fa85a', grassB:'#5f9750', dirt:'#b89a6f', dirtDark:'#a4835a',
+    scroll:'#e8d9b0', scrollBand:'#b08d57'
+  };
+
+  function px(gx,gy,gw,gh,color){
+    ctx.fillStyle=color;
+    ctx.fillRect(Math.round(gx*U), Math.round(gy*U), gw*U, gh*U);
+  }
+
+  const stars = [];
+  for(let i=0;i<26;i++){ stars.push({x:Math.random()*80, y:Math.random()*10, ph:Math.random()*6.28}); }
+
+  function drawSky(ts){
+    const bands = ['#1c2a52','#2f4a80','#4874a8','#6fb0b8','#a9dcc4','#cdeadb'];
+    const bh = H/bands.length/U;
+    bands.forEach((c,i)=> px(0, i*bh, W/U, bh+0.5, c));
+    stars.forEach(s=>{
+      const op = 0.35 + 0.5*Math.abs(Math.sin(ts/700 + s.ph));
+      px(s.x, s.y, 0.5, 0.5, `rgba(255,255,255,${op.toFixed(2)})`);
+    });
+  }
+
+  function drawClouds(offsetUnits){
+    const cloudDefs = [ [8,4,7,2],[38,7,9,2],[66,3,6,2],[92,9,8,2] ];
+    const spanU = W/U;
+    cloudDefs.forEach(([cx,cy,cw,ch])=>{
+      let x = ((cx + offsetUnits) % (spanU+22) + (spanU+22)) % (spanU+22) - 11;
+      px(x,cy+1,cw,ch,'#aebccf');
+      px(x,cy,cw,ch,'#ffffff');
+      px(x+1,cy-0.5,cw-2,1,'#ffffff');
+    });
+  }
+
+  function drawGrass(){
+    for(let x=0;x<W/U;x+=2){ px(x,38,2,7,(x/2)%2===0?pal.grassA:pal.grassB); }
+  }
+  function drawDirtYard(){
+    for(let x=0;x<W/U;x+=2){ px(x,38,2,7,(x/2)%2===0?pal.dirt:pal.dirtDark); }
+  }
+
+  function drawHouse(ox,oy,doorOpen){
+    px(ox+2,oy+5,18,1,pal.roof);
+    px(ox+3,oy+4,16,1,pal.roof);
+    px(ox+5,oy+3,12,1,pal.roof);
+    px(ox+7,oy+2,8,1,pal.roof);
+    px(ox+9,oy+1,4,1,pal.roof);
+    px(ox+4,oy+6,14,8,pal.wall);
+    px(ox+6,oy+7,2,2,pal.win);
+    px(ox+14,oy+7,2,2,pal.win);
+    px(ox+9,oy+9,4,5,doorOpen?pal.doorOpen:pal.door);
+    px(ox+3,oy+14,16,1,'#9c9c9c');
+  }
+
+  // ---- cute chibi girl (brown hair, yellow dress) ----
+  function drawGirl(ox,oy){
+    px(ox+2,oy+0,8,6,pal.hairDark);
+    px(ox+3,oy+2,6,5,pal.skin);
+    px(ox+2,oy+1,8,2,pal.hair);
+    px(ox+0,oy+3,2,3,pal.hair); px(ox+10,oy+3,2,3,pal.hair);
+    px(ox+4,oy+5,1,1,pal.eye); px(ox+7,oy+5,1,1,pal.eye);
+    px(ox+3,oy+6,1,1,pal.blush); px(ox+8,oy+6,1,1,pal.blush);
+    px(ox+5,oy+7,2,1,pal.skin);
+    px(ox+2,oy+8,8,2,pal.dress);
+    px(ox+1,oy+8,1,3,pal.skin); px(ox+10,oy+8,1,3,pal.skin);
+    px(ox+1,oy+10,10,4,pal.dress);
+    px(ox+1,oy+13,10,1,pal.dressShade);
+    px(ox+4,oy+14,1,3,pal.skin); px(ox+7,oy+14,1,3,pal.skin);
+    px(ox+4,oy+17,1,1,pal.shoe); px(ox+7,oy+17,1,1,pal.shoe);
+  }
+
+  // ---- cute chibi guy (straw hat, denim overalls) ----
+  function drawGuy(ox,oy){
+    px(ox+3,oy+0,6,3,pal.hat);
+    px(ox+1,oy+3,10,1,pal.hatBrim);
+    px(ox+3,oy+4,6,5,pal.skin);
+    px(ox+4,oy+7,1,1,pal.eye); px(ox+7,oy+7,1,1,pal.eye);
+    px(ox+5,oy+9,2,1,pal.skin);
+    px(ox+4,oy+9,1,2,pal.denim); px(ox+7,oy+9,1,2,pal.denim);
+    px(ox+2,oy+10,8,2,pal.shirt);
+    px(ox+1,oy+10,1,3,pal.skin); px(ox+10,oy+10,1,3,pal.skin);
+    px(ox+2,oy+10,8,6,pal.denim);
+    px(ox+2,oy+13,8,1,pal.denimDark);
+    px(ox+3,oy+16,3,3,pal.denim); px(ox+6,oy+16,3,3,pal.denim);
+    px(ox+3,oy+19,3,1,pal.shoe); px(ox+6,oy+19,3,1,pal.shoe);
+  }
+
+  const PW = 11; // pigeon sprite bounding width, used for mirroring
+  function drawPigeonRaw(ox,oy,flap){
+    px(ox+0,oy+4,2,1,pal.tail);
+    px(ox+2,oy+3,5,3,pal.body);
+    px(ox+6,oy+2,3,3,pal.body);
+    px(ox+9,oy+3,1,1,pal.beak);
+    px(ox+7,oy+3,1,1,pal.eye);
+    if(flap) px(ox+1,oy+2,3,2,pal.wing);
+    else px(ox+1,oy+4,3,2,pal.wing);
+  }
+  function drawPigeon(ox,oy,flap,faceLeft){
+    if(faceLeft){
+      ctx.save();
+      ctx.translate(Math.round((ox+PW)*U),0);
+      ctx.scale(-1,1);
+      drawPigeonRaw(0,oy,flap);
+      ctx.restore();
+    } else {
+      drawPigeonRaw(ox,oy,flap);
+    }
+  }
+
+  function drawScroll(x,y){
+    px(x,y,2,3,pal.scroll);
+    px(x,y+1,2,1,pal.scrollBand);
+  }
+
+  function lerp(a,b,p){ return a+(b-a)*Math.max(0,Math.min(1,p)); }
+
+  let state = 'idle';
+  let flapOn = false, lastFlap = 0;
+  let cloudOffset = 0;
+  let intro = {}, land = {}, deliv = {};
+
+  const GROUND_Y = 38;                  // top of the grass/dirt ground plane
+  const SKY_Y = 6;                      // cruising altitude while airborne
+  const GIRL_X = 45, GIRL_Y = 20;       // girl's standing spot in the yard
+  const PIGEON_GROUND_Y = GROUND_Y - 6; // pigeon's y so its feet touch the ground
+  const PICKUP_X = 34;                  // where pigeon lands, left of girl
+  const HOUSE_X = 2, HOUSE_Y = 23;
+  const GUY_X = 11, GUY_Y = 18;
+  const DROPOFF_X = 27, DROPOFF_Y = PIGEON_GROUND_Y; // where pigeon lands, right of guy
+
+  function frame(ts){
+    if(ts - lastFlap > 160){ flapOn = !flapOn; lastFlap = ts; }
+    cloudOffset += 0.05;
+    ctx.clearRect(0,0,W,H);
+
+    if(state==='intro') renderIntro(ts);
+    else if(state==='flying') renderFlying(ts);
+    else if(state==='landing') renderLanding(ts);
+    else if(state==='waiting') renderWaiting(ts);
+    else if(state==='delivering') renderDelivering(ts);
+    else renderIdle(ts);
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  function renderIdle(ts){
+    drawSky(ts); drawClouds(0); drawGrass();
+    drawGirl(GIRL_X,GIRL_Y);
+  }
+
+  // Sequence: girl walks in from the right -> pigeon flies in from the left,
+  // facing right, and lands to the girl's left -> scroll passes from her
+  // hand (right) to the pigeon's beak (left) -> pigeon turns to face left
+  // and flies off the left edge.
+  function renderIntro(ts){
+    drawSky(ts); drawClouds(cloudOffset); drawGrass();
+
+    const el = ts - intro.start;
+    const girlX = lerp(90, GIRL_X, el/1100);
+    drawGirl(girlX, GIRL_Y);
+
+    if(el < 2700){
+      const p = Math.min(1, el/1300);
+      const px_ = lerp(-16, PICKUP_X, p);
+      const py_ = lerp(SKY_Y, PIGEON_GROUND_Y, p);
+      drawPigeon(px_, py_, flapOn, false);
+    }
+
+    if(el >= 1600 && el < 2400){
+      const p = (el-1600)/800;
+      drawScroll(lerp(girlX+1, PICKUP_X+8, p), lerp(GIRL_Y+8, PIGEON_GROUND_Y+3, p));
+    } else if(el >= 2400 && el < 2700){
+      drawScroll(PICKUP_X+8, PIGEON_GROUND_Y+3);
+    }
+
+    if(el >= 2700){
+      const p = Math.min(1,(el-2700)/900);
+      const gx = lerp(PICKUP_X, -20, p);
+      const gy = lerp(PIGEON_GROUND_Y, SKY_Y, p);
+      drawPigeon(gx, gy, flapOn, true);
+      if(!intro.done && p>=1){
+        intro.done = true;
+        state = 'flying';
+        beginFlying();
+      }
+    }
+  }
+
+  function renderFlying(ts){
+    drawSky(ts); drawClouds(cloudOffset);
+    drawPigeon(W/U/2 - 5, H/U/2 - 6, flapOn, true);
+  }
+
+  // Pigeon keeps flying left, entering this scene from the right and
+  // landing to the right of the guy's doorstep, still facing left.
+  function renderLanding(ts){
+    drawSky(ts); drawClouds(cloudOffset); drawDirtYard();
+    drawHouse(HOUSE_X,HOUSE_Y,false);
+    const el = ts - land.start;
+    const p = Math.min(1, el/1400);
+    const fx = lerp(72, DROPOFF_X, p);
+    const fy = lerp(SKY_Y, DROPOFF_Y, p);
+    drawPigeon(fx,fy,flapOn,true);
+    if(p>=1 && !land.done){
+      land.done = true;
+      state = 'waiting';
+    }
+  }
+
+  function renderWaiting(ts){
+    drawSky(ts); drawClouds(cloudOffset); drawDirtYard();
+    drawHouse(HOUSE_X,HOUSE_Y,false);
+    drawPigeon(DROPOFF_X,DROPOFF_Y,flapOn,true);
+  }
+
+  function renderDelivering(ts){
+    drawSky(ts); drawClouds(cloudOffset); drawDirtYard();
+    const el = ts - deliv.start;
+    const doorOpen = el > 400;
+    drawHouse(HOUSE_X,HOUSE_Y,doorOpen);
+    if(el > 700) drawGuy(GUY_X, GUY_Y);
+    drawPigeon(DROPOFF_X,DROPOFF_Y,flapOn,true);
+    if(el > 900 && el < 1700){
+      const p = (el-900)/800;
+      drawScroll(lerp(DROPOFF_X+1, GUY_X+9, p), lerp(DROPOFF_Y+3, GUY_Y+10, p));
+    } else if(el>=1700){
+      drawScroll(GUY_X+9, GUY_Y+10);
+    }
+    if(el >= 2200 && !deliv.done){
+      deliv.done = true;
+      revealOverlay.classList.remove('hidden');
+    }
+  }
+
+  const preOverlay = document.getElementById('preOverlay');
+  const flightHud = document.getElementById('flightHud');
+  const arrivedHud = document.getElementById('arrivedHud');
+  const revealOverlay = document.getElementById('revealOverlay');
+  const statusLine = document.getElementById('statusLine');
+  const distanceValue = document.getElementById('distanceValue');
+  const etaValue = document.getElementById('etaValue');
+  const startBtn = document.getElementById('startBtn');
+  const openBtn = document.getElementById('openBtn');
+  const replayBtn = document.getElementById('replayBtn');
+  const toast = document.getElementById('toast');
+
+  const messages = [
+    "Flying over the treetops","Pigeon has stopped for a snack 🌾","Unexpected headwind 💨",
+    "Napping on a power line 😴","Chasing a butterfly 🦋","Dodging a curious hawk",
+    "Back on course","Resting wings on a chimney","Gossiping with other pigeons",
+    "Picking up speed","Circling to get bearings","Gliding through a cloud ☁️"
+  ];
+  let lastMsg='';
+  function pickMessage(){ let m; do{ m=messages[Math.floor(Math.random()*messages.length)]; }while(m===lastMsg); lastMsg=m; return m; }
+
+  function showToast(text){
+    toast.textContent = text; toast.classList.add('show');
+    setTimeout(()=> toast.classList.remove('show'), 3800);
+  }
+  function notify(text){
+    showToast(text);
+    if('Notification' in window){
+      if(Notification.permission==='granted') new Notification('Pigeon Post',{body:text});
+      else if(Notification.permission!=='denied') Notification.requestPermission().then(p=>{ if(p==='granted') new Notification('Pigeon Post',{body:text}); });
+    }
+  }
+
+  let statusTimer, distanceTimer, flightTimeout;
+
+  function beginFlying(){
+    statusLine.textContent = 'Pigeon takes off 🕊️';
+    const totalMiles = 180 + Math.floor(Math.random()*220);
+    let remaining = totalMiles;
+    distanceValue.textContent = remaining + ' mi';
+    etaValue.textContent = '???';
+    const flightSeconds = 20 + Math.random()*14;
+
+    setTimeout(()=>{
+      const mins = 3 + Math.floor(Math.random()*25);
+      etaValue.textContent = '~' + mins + ' min';
+    }, 3500 + Math.random()*3000);
+
+    (function scheduleStatus(){
+      statusTimer = setTimeout(()=>{ statusLine.textContent = pickMessage(); scheduleStatus(); }, 2200 + Math.random()*2600);
+    })();
+
+    (function scheduleDistance(){
+      distanceTimer = setTimeout(()=>{
+        if(remaining > 5){
+          const jump = Math.random() < 0.2 ? 0 : Math.floor(5 + Math.random()*40);
+          remaining = Math.max(0, remaining - jump);
+          distanceValue.textContent = remaining + ' mi';
+          scheduleDistance();
+        }
+      }, 1500 + Math.random()*2000);
+    })();
+
+    flightTimeout = setTimeout(()=>{
+      clearTimeout(statusTimer); clearTimeout(distanceTimer);
+      distanceValue.textContent = '0 mi'; etaValue.textContent = 'now';
+      statusLine.textContent = 'Touching down…';
+      state = 'landing'; land = {start: performance.now(), done:false};
+    }, flightSeconds*1000);
+  }
+
+  startBtn.addEventListener('click', ()=>{
+    preOverlay.classList.add('hidden');
+    flightHud.classList.remove('hidden');
+    state = 'intro';
+    intro = {start: performance.now(), done:false};
+  });
+
+  openBtn.addEventListener('click', ()=>{
+    arrivedHud.classList.add('hidden');
+    state = 'delivering';
+    deliv = {start: performance.now(), done:false};
+  });
+
+  let prevState = null;
+  setInterval(()=>{
+    if(state==='waiting' && prevState!=='waiting'){
+      flightHud.classList.add('hidden');
+      arrivedHud.classList.remove('hidden');
+      notify('Your pigeon has arrived. Open your message to retrieve it.');
+    }
+    prevState = state;
+  }, 150);
+
+  replayBtn.addEventListener('click', ()=>{
+    revealOverlay.classList.add('hidden');
+    preOverlay.classList.remove('hidden');
+    state = 'idle';
+  });
+
+})();
+</script>
+</body>
+</html>
